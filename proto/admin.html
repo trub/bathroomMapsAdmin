@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style type="text/css">
+            html, body { height: 100%; margin: 0; padding: 0; }
+            #wrapper {
+                margin-right: 200px;
+                height: 100%;
+            }
+            #map {
+                float: left;
+                width: 100%;
+                height: 100%;
+            }
+            #pane {
+                float: right;
+                width: 200px;
+                margin-right: -200px;
+            }
+            #cleared {
+                clear: both;
+            }
+
+            #container {
+                display: table;
+            }
+
+            #row {
+                display: table-row;
+            }
+
+            #left, #middle, #right {
+                display: table-cell;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="wrapper">
+            <!-- Map -->
+            <div id="map">M</div>
+            
+            <!-- Right pane -->
+            <div id="pane">
+
+                <div id="addbathroom" style="visibility: collapse;">
+                    <div id="container">
+                        <div id="row">
+                            <div id="left">Lat:</div>
+                            <div id="middle">
+                                <input type="text" id="latBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">Lon:</div>
+                            <div id="middle">
+                                <input type="text" id="lonBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">Name:</div>
+                            <div id="middle">
+                                <input type="text" id="nameBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">Category:</div>
+                            <div id="middle">
+                                <input type="text" id="catBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">
+                                <button type="button" onclick='onAddClick()'>Add</button>
+                                <button type="button" onclick='onCancelClick()'>Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div> <!-- addBathroom -->
+
+                <!--
+                <div id="removebathroom" style="visibility:collapse;">
+                    <div id="container">
+                        <div id="row">Remove this bathroom?</div>
+                        <div id="row">
+                            <button type="button" onclick='onRemoveClick()'>Remove</button>
+                            <button type="button" onclick='onCancelClick()'>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                -->
+            </div>
+
+
+            <div id="cleared"></div>
+        </div>
+        <script type="text/javascript">
+
+            // Globals
+            var map;
+            var newMarker;
+            var addBathroomPane = document.getElementById('addbathroom');
+            var latBox = document.getElementById('latBox');
+            var lonBox = document.getElementById('lonBox');
+            var nameBox = document.getElementById('nameBox');
+            var catBox = document.getElementById('catBox');
+
+            function initMap() {
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: {lat: 47.6278, lng: -122.29767},
+                    zoom: 14
+                });
+
+                // Map right click handler
+                map.addListener('rightclick', function(e) {
+
+                    clearNewMarker();
+
+                    newMarker = new google.maps.Marker({
+                        position: {lat: e.latLng.lat(), lng: e.latLng.lng()},
+                        map: map,
+                        title: "New bathroom",
+                        draggable: true
+                    });
+
+                    // Map drag marker handler
+                    newMarker.addListener('dragend', function() {
+                        syncMarkerToAddBathroomsPane(newMarker, false /* resetName */, false /* resetCategory */);
+                    });
+
+                    addBathroomPane.style.visibility = "visible";
+                    syncMarkerToAddBathroomsPane(newMarker, true /* resetName */, true /* resetCategory */);
+
+                }, false);
+
+                // Map click handler
+                map.addListener('click', function(e) {
+                    if (newMarker != null) {
+                        onCancelClick();
+                    }
+                });
+
+                populateMarkersAsync(map);
+            }
+
+            function populateMarkersAsync(map) {
+                var url = "http://ec2-52-89-143-80.us-west-2.compute.amazonaws.com:8080/bathrooms";
+                var xmlHttp = new XMLHttpRequest();
+
+                xmlHttp.onreadystatechange = function() {
+                    if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+                        onGetBathroomsDone(map, xmlHttp.responseText);
+                    }
+                };
+                xmlHttp.open("GET", url, true /* async */ );
+                xmlHttp.send(null);
+            }
+
+            function onGetBathroomsDone(map, body) {
+                var bathrooms = JSON.parse(body).bathrooms;
+                for (var i = 0; i < bathrooms.length; i++) {
+                    addBathroomMarker(bathrooms[i]);
+                }
+            }
+
+            function syncMarkerToAddBathroomsPane(marker, resetName, resetCategory) {
+                latBox.value = marker.getPosition().lat();
+                lonBox.value = marker.getPosition().lng();
+                
+                if (resetName) {
+                    nameBox.value = null;
+                }
+
+                if (resetCategory) {
+                    document.getElementById('catBox').value = "Public";
+                }
+
+                nameBox.focus();
+            }
+
+            function clearNewMarker() {
+                if (newMarker != null) {
+                    newMarker.setMap(null);
+                }
+            }
+
+            function addBathroomMarker(bathroom) {
+                var marker = new google.maps.Marker({
+                    position: {lat: bathroom.lat, lng: bathroom.lon},
+                    map: map,
+                    title: bathroom.name,
+                    dbId: bathroom._id,
+                });
+
+                marker.addListener('click', function(e) {
+                    var promptString =
+                        "Remove this bathroom?\n" +
+                        marker.title;
+                    var remove = confirm(promptString);
+                    if (remove) {
+                        alert('will remove');
+                    }
+
+                    //syncMarkerToAddBathroomsPane(marker, false /* resetName */, false /* resetCategory */);
+                });
+            }
+
+            function onAddClick() {
+                var promptString = "Add this bathroom?\n" +
+                    nameBox.value + "\n" +
+                    catBox.value;
+                var add = confirm(promptString);
+                if (add) {
+                    alert('will add');
+                }
+            }
+
+            function onCancelClick() {
+                clearNewMarker();
+                addBathroomPane.style.visibility = "collapse";
+            }
+
+
+        </script>
+        <script async defer
+                src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBCgkWIlFfCl2t-0bLvU_58A-Z70lVszw0&callback=initMap">
+        </script>
+    </body>
+
+</html>
+
+<!-- toptal -->

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
         <style type="text/css">
             html, body { height: 100%; margin: 0; padding: 0; }
             #wrapper {
@@ -70,8 +71,15 @@
                             </div>
                         </div>
                         <div id="row">
+                            <div id="left">Pending:</div>
+                            <div id="middle">
+                                <input type="checkbox" id="pendingBox">
+                            </div>
+                        </div>
+                        <div id="row">
                             <div id="left">
-                                <button type="button" onclick='onAddClick()'>Add</button>
+                                <button type="button" onclick='onAddClick()'>Submit</button>
+                                <button id="removeButton" type="button" onclick='onRemoveClick()'>Remove</button>
                                 <button type="button" onclick='onCancelClick()'>Cancel</button>
                             </div>
                         </div>
@@ -97,13 +105,21 @@
         <script type="text/javascript">
 
             // Globals
+            var baseUrl = "http://ec2-52-89-143-80.us-west-2.compute.amazonaws.com:8080";
             var map;
             var newMarker;
+            var currentMarker;
             var addBathroomPane = document.getElementById('addbathroom');
             var latBox = document.getElementById('latBox');
             var lonBox = document.getElementById('lonBox');
             var nameBox = document.getElementById('nameBox');
             var catBox = document.getElementById('catBox');
+
+            var MarkerTypeEnum = Object.freeze({
+                ACTIVE: 0,
+                PENDING: 1,
+                ADD: 2
+            });
 
             function initMap() {
                 map = new google.maps.Map(document.getElementById('map'), {
@@ -120,60 +136,108 @@
                         position: {lat: e.latLng.lat(), lng: e.latLng.lng()},
                         map: map,
                         title: "New bathroom",
-                        draggable: true
+                        draggable: true,
+                        icon: markerTypeToIcon(MarkerTypeEnum.ADD),
+                        category: "Public",
+                        markerType: MarkerTypeEnum.ADD,
+                        animation: google.maps.Animation.BOUNCE
                     });
 
                     // Map drag marker handler
                     newMarker.addListener('dragend', function() {
-                        syncMarkerToAddBathroomsPane(newMarker, false /* resetName */, false /* resetCategory */);
+                        syncMarkerToAddBathroomsPane(newMarker);
                     });
 
                     addBathroomPane.style.visibility = "visible";
-                    syncMarkerToAddBathroomsPane(newMarker, true /* resetName */, true /* resetCategory */);
+                    syncMarkerToAddBathroomsPane(newMarker);
 
                 }, false);
 
                 // Map click handler
                 map.addListener('click', function(e) {
-                    if (newMarker != null) {
-                        onCancelClick();
-                    }
+                    onCancelClick();
                 });
 
                 populateMarkersAsync(map);
             }
 
-            function populateMarkersAsync(map) {
-                var url = "http://ec2-52-89-143-80.us-west-2.compute.amazonaws.com:8080/bathrooms";
+            function makeApiRequestAsync(api, callback) {
+                var url = baseUrl + "/" + api;
                 var xmlHttp = new XMLHttpRequest();
 
                 xmlHttp.onreadystatechange = function() {
                     if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
-                        onGetBathroomsDone(map, xmlHttp.responseText);
+                        callback(xmlHttp.responseText);
                     }
                 };
                 xmlHttp.open("GET", url, true /* async */ );
                 xmlHttp.send(null);
             }
 
-            function onGetBathroomsDone(map, body) {
-                var bathrooms = JSON.parse(body).bathrooms;
-                for (var i = 0; i < bathrooms.length; i++) {
-                    addBathroomMarker(bathrooms[i]);
-                }
+            function makeApiRequestAsyncDebug(api, callback) {
+                alert(api);
+                makeApiRequestAsync(api, callback);
             }
 
-            function syncMarkerToAddBathroomsPane(marker, resetName, resetCategory) {
+            function populateMarkersAsync(map) {
+                makeApiRequestAsync("pendingbathrooms", function(responseText) {
+                    var bathrooms = JSON.parse(responseText).bathrooms;
+                    for (var i = 0; i < bathrooms.length; i++) {
+                        addBathroomMarker(bathrooms[i]);
+                    }
+                });
+            }
+
+            function addBathroomAsync(lat, lon, name, cat, pending) {
+                makeApiRequestAsync("addBathroom?" +
+                        "lat=" + lat +
+                        "&lon=" + lon +
+                        "&name=" + name +
+                        "&cat=" + cat + 
+                        (pending ? "" : "&admin"), function(responseText) {
+                            var result = JSON.parse(responseText);
+                            if (result.result.ok) {
+                                alert('Success!');
+                                clearNewMarker();
+                                addBathroomMarker(result.bathroom);
+                            } else {
+                                alert(responseText);
+                            }
+                        });
+            }
+
+            function removeBathroomAsync(dbId, callback) {
+                makeApiRequestAsync("removeBathroom?id=" + dbId, function(responseText) {
+                    callback(responseText);
+                });
+            }
+
+            function modifyBathroomAsync(marker, dbId, lat, lon, name, cat, pending) {
+                makeApiRequestAsync("modifyBathroom?" +
+                        "id=" + dbId +
+                        "&lat=" + lat +
+                        "&lon=" + lon +
+                        "&name=" + name +
+                        "&cat=" + cat + 
+                        "&pending=" + pending, function(responseText) {
+                            alert(responseText)
+                            var result = JSON.parse(responseText);
+                            if (result.result.ok) {
+                                marker.setMap(null);
+                                addBathroomMarker(result.bathroom);
+                            }
+                        });
+            }
+
+            function syncMarkerToAddBathroomsPane(marker) {
+                currentMarker = marker;
                 latBox.value = marker.getPosition().lat();
                 lonBox.value = marker.getPosition().lng();
-                
-                if (resetName) {
-                    nameBox.value = null;
-                }
-
-                if (resetCategory) {
-                    document.getElementById('catBox').value = "Public";
-                }
+                nameBox.value = marker.title;
+                $('#catBox').val(marker.category);
+                $('#pendingBox').prop('checked', marker.markerType == MarkerTypeEnum.PENDING);
+                var removeButton = $('#removeButton');
+                (marker.markerType == MarkerTypeEnum.ADD) ? removeButton.hide() : removeButton.show();
 
                 nameBox.focus();
             }
@@ -184,38 +248,96 @@
                 }
             }
 
+            function markerTypeToIcon(markerType) {
+                if (markerType == MarkerTypeEnum.ACTIVE) {
+                    return 'http://maps.google.com/mapfiles/ms/icons/orange-dot.png';
+                } else if (markerType == MarkerTypeEnum.PENDING) {
+                    return 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png';
+                } else if (markerType == MarkerTypeEnum.ADD) {
+                    return 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png';
+                }
+                return 'http://maps.google.com/mapfiles/ms/icons/red-dot.png';
+            }
+
+            function markerTypeToString(markerType) {
+                if (markerType == MarkerTypeEnum.ACTIVE) {
+                    return 'Active';
+                } else if (markerType == MarkerTypeEnum.PENDING) {
+                    return 'Pending';
+                } else if (markerType == MarkerTypeEnum.ADD) {
+                    return 'Add';
+                }
+                return 'Unknown';
+            }
+
             function addBathroomMarker(bathroom) {
+                var pending = (bathroom.pending != null) && bathroom.pending;
+                var markerType = pending ? MarkerTypeEnum.PENDING : MarkerTypeEnum.ACTIVE;
                 var marker = new google.maps.Marker({
                     position: {lat: bathroom.lat, lng: bathroom.lon},
                     map: map,
+                    draggable: pending,
                     title: bathroom.name,
+                    icon: markerTypeToIcon(markerType),
                     dbId: bathroom._id,
+                    category: bathroom.category,
+                    markerType: markerType
                 });
+
+                if (pending) {
+                    marker.setAnimation(google.maps.Animation.BOUNCE);
+                }
 
                 marker.addListener('click', function(e) {
-                    var promptString =
-                        "Remove this bathroom?\n" +
-                        marker.title;
-                    var remove = confirm(promptString);
-                    if (remove) {
-                        alert('will remove');
-                    }
-
-                    //syncMarkerToAddBathroomsPane(marker, false /* resetName */, false /* resetCategory */);
+                    addBathroomPane.style.visibility = "visible";
+                    syncMarkerToAddBathroomsPane(marker);
                 });
+
+                // Map drag marker handler
+                marker.addListener('dragend', function() {
+                    syncMarkerToAddBathroomsPane(marker);
+                });
+
+                return marker;
             }
 
             function onAddClick() {
-                var promptString = "Add this bathroom?\n" +
+                var add = (currentMarker.markerType == MarkerTypeEnum.ADD);
+                var pending = $('#pendingBox').is(':checked');
+                var promptTitle = add ? "Add this bathroom?" : "Modify this bathroom?";
+                var promptString = promptTitle + "\n" +
                     nameBox.value + "\n" +
-                    catBox.value;
-                var add = confirm(promptString);
-                if (add) {
-                    alert('will add');
+                    catBox.value + "\n" +
+                    "Pending=" + pending;
+                var commit = confirm(promptString);
+                if (commit) {
+                    if (add) {
+                        addBathroomAsync(latBox.value, lonBox.value, nameBox.value, catBox.value, pending);
+                    } else {
+                        modifyBathroomAsync(currentMarker, currentMarker.dbId, latBox.value, lonBox.value, nameBox.value, catBox.value, pending);
+                    }
+                }
+            }
+
+            function onRemoveClick() {
+                var promptString =
+                    "Remove this bathroom?\n" +
+                    currentMarker.title + "\n" +
+                    "MarkerType=" + markerTypeToString(currentMarker.markerType);
+                var remove = confirm(promptString);
+                if (remove) {
+                    removeBathroomAsync(currentMarker.dbId, function(responseText) {
+                        alert(responseText);
+                        var result = JSON.parse(responseText);
+                        if (result.result.ok) {
+                            currentMarker.setMap(null);
+                        }
+                    });
                 }
             }
 
             function onCancelClick() {
+                currentMarker = null;
                 clearNewMarker();
                 addBathroomPane.style.visibility = "collapse";
             }

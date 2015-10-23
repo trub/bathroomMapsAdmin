@@ -5,7 +5,7 @@
         <style type="text/css">
             html, body { height: 100%; margin: 0; padding: 0; }
             #wrapper {
-                margin-right: 200px;
+                margin-right: 400px;
                 height: 100%;
             }
             #map {
@@ -15,8 +15,8 @@
             }
             #pane {
                 float: right;
-                width: 200px;
-                margin-right: -200px;
+                width: 400px;
+                margin-right: -400px;
             }
             #cleared {
                 clear: both;
@@ -83,20 +83,38 @@
                                 <button type="button" onclick='onCancelClick()'>Cancel</button>
                             </div>
                         </div>
-                    </div>
-                </div> <!-- addBathroom -->
-
-                <!--
-                <div id="removebathroom" style="visibility:collapse;">
-                    <div id="container">
-                        <div id="row">Remove this bathroom?</div>
                         <div id="row">
-                            <button type="button" onclick='onRemoveClick()'>Remove</button>
-                            <button type="button" onclick='onCancelClick()'>Cancel</button>
+                            <div id="left">New rating (out of 5):</div>
+                            <div id="middle">
+                                <input type="text" id="ratingBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">New review:</div>
+                            <div id="middle">
+                                <input type="text" id="reviewBox">
+                            </div>
+                        </div>
+                        <div id="row">
+                            <div id="left">
+                                <button id="reviewButton" type="button" onclick='onReviewClick()'>Add review</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-                -->
+                    <table id="reviews">
+                        <thead>
+                            <tr>
+                                <th>Rating</th>
+                                <th>Date</th>
+                                <th>Text</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div> <!-- addBathroom -->
+
+
             </div>
 
 
@@ -105,7 +123,7 @@
         <script type="text/javascript">
 
             // Globals
-            var baseUrl = "http://ec2-52-89-143-80.us-west-2.compute.amazonaws.com:8080";
+            var baseUrl = "http://ec2-54-200-75-151.us-west-2.compute.amazonaws.com:8080";
             var map;
             var newMarker;
             var currentMarker;
@@ -197,9 +215,9 @@
                         (pending ? "" : "&admin"), function(responseText) {
                             var result = JSON.parse(responseText);
                             if (result.result.ok) {
-                                alert('Success!');
+                                alert(responseText);
                                 clearNewMarker();
-                                addBathroomMarker(result.bathroom);
+                                syncMarkerToAddBathroomsPane(addBathroomMarker(result.bathroom));
                             } else {
                                 alert(responseText);
                             }
@@ -224,8 +242,17 @@
                             var result = JSON.parse(responseText);
                             if (result.result.ok) {
                                 marker.setMap(null);
-                                addBathroomMarker(result.bathroom);
+                                syncMarkerToAddBathroomsPane(addBathroomMarker(result.bathroom));
                             }
+                        });
+            }
+
+            function reviewBathroomAsync(dbId, rating, review, callback) {
+                makeApiRequestAsync("addReview?" +
+                        "id=" + dbId +
+                        "&rating=" + rating +
+                        "&text=" + review, function(responseText) {
+                            callback(responseText);
                         });
             }
 
@@ -238,6 +265,20 @@
                 $('#pendingBox').prop('checked', marker.markerType == MarkerTypeEnum.PENDING);
                 var removeButton = $('#removeButton');
                 (marker.markerType == MarkerTypeEnum.ADD) ? removeButton.hide() : removeButton.show();
+
+                $('#reviews tbody').html('');
+
+                if (marker.bathroom != null) {
+                    var rating = marker.bathroom.rating;
+                    for (var i = 0; i < rating.reviews.length; i++) {
+                        var review = rating.reviews[i];
+                        $('#reviews tbody').append('<tr>' +
+                            '<td>' + review.rating + '</td>' +
+                            '<td>' + new Date(review.date).toLocaleDateString('en-US') + '</td>' +
+                            '<td>' + review.text + '</td>' +
+                            '</tr>');
+                    }
+                }
 
                 nameBox.focus();
             }
@@ -281,7 +322,8 @@
                     icon: markerTypeToIcon(markerType),
                     dbId: bathroom._id,
                     category: bathroom.category,
-                    markerType: markerType
+                    markerType: markerType,
+                    bathroom: bathroom
                 });
 
                 if (pending) {
@@ -342,6 +384,23 @@
                 addBathroomPane.style.visibility = "collapse";
             }
 
+            function onReviewClick() {
+                var rating = $('#ratingBox').val();
+                var reviewText = $('#reviewBox').val();
+                var promptString =
+                    "Review this bathroom?\n" +
+                    currentMarker.title + "\n" +
+                    "ID=" + currentMarker.dbId + "\n" +
+                    "Rating=" + rating + "\n" +
+                    "Text=" + reviewText;
+                var review = confirm(promptString);
+                if (review) {
+                    reviewBathroomAsync(currentMarker.dbId, rating, reviewText, function(responseText) {
+                        // TODO: update review list
+                        alert(responseText);
+                    });
+                }
+            }
 
         </script>
         <script async defer
